@@ -41,6 +41,8 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
 
 @property (nonatomic, getter=isHidden) BOOL hidden; // Required override
 
+@property (nonatomic) BOOL keyboardUp;
+
 @end
 
 @implementation SLKTextInputbar
@@ -84,7 +86,7 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     self.autoHideRightButton = YES;
     self.autoHideLeftButton = YES;
     self.editorContentViewHeight = 38.0;
-    self.contentInset = UIEdgeInsetsMake(5.0, 8.0, 5.0, 8.0);
+    self.contentInset = UIEdgeInsetsMake(5.0, 4.0, 5.0, 8.0);
     
     [self addSubview:self.editorContentView];
     [self addSubview:self.leftButton];
@@ -373,18 +375,19 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
 - (CGFloat)slk_appropriateLeftButtonWidth
 {
     if (self.autoHideLeftButton) {
-        if (self.textView.text.length == 0) {
+        if (!self.keyboardUp) {
             return 0.0;
         }
     }
     
-    return [self.leftButton intrinsicContentSize].width;
+    CGFloat intrinsicWidth = [self.leftButton intrinsicContentSize].width;
+    return MAX(intrinsicWidth, 54);
 }
 
 - (CGFloat)slk_appropriateLeftButtonMargin
 {
     if (self.autoHideLeftButton) {
-        if (self.textView.text.length == 0) {
+        if (!self.keyboardUp) {
             return 0.0;
         }
     }
@@ -630,40 +633,8 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     if (self.maxCharCount > 0) {
         [self slk_updateCounter];
     }
-    
-    if ((self.autoHideRightButton || self.autoHideLeftButton) && !self.isEditing)
-    {
-        CGFloat rightButtonNewWidth = [self slk_appropriateRightButtonWidth];
-        CGFloat leftButtonNewWidth = [self slk_appropriateLeftButtonWidth];
-        
-        // Only updates if the width did change
-        if (self.rightButtonWC.constant == rightButtonNewWidth && self.leftButtonWC.constant == leftButtonNewWidth) {
-            return;
-        }
-        
-        if (self.rightButtonWC.constant != rightButtonNewWidth) {
-            self.rightButtonWC.constant = rightButtonNewWidth;
-            self.rightMarginWC.constant = [self slk_appropriateRightButtonMargin];
-            [self.rightButton layoutIfNeeded]; // Avoids the right button to stretch when animating the constraint changes
-        }
-        
-        if (self.leftButtonWC.constant != leftButtonNewWidth) {
-            self.leftButtonWC.constant = leftButtonNewWidth;
-            self.leftMarginWC.constant = [self slk_appropriateLeftButtonMargin];
-            [self.leftButton layoutIfNeeded]; // Avoids the left button to stretch when animating the constraint changes
-        }
-        
-        BOOL bounces = self.bounces && [self.textView isFirstResponder];
-        
-        if (self.window) {
-            [self slk_animateLayoutIfNeededWithBounce:bounces
-                                              options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
-                                           animations:NULL];
-        }
-        else {
-            [self layoutIfNeeded];
-        }
-    }
+  
+    [self slk_checkButtonLayouts];
 }
 
 - (void)slk_didChangeTextViewContentSize:(NSNotification *)notification
@@ -681,6 +652,18 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     }
     
     [self layoutIfNeeded];
+}
+
+- (void)slk_keyboardWillShow:(NSNotification *)notification
+{
+    self.keyboardUp = YES;
+    [self slk_checkButtonLayouts];
+}
+
+- (void)slk_keyboardWillHide:(NSNotification *)notification
+{
+    self.keyboardUp = NO;
+    [self slk_checkButtonLayouts];
 }
 
 
@@ -767,6 +750,43 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     }
 }
 
+- (void)slk_checkButtonLayouts
+{
+    if ((self.autoHideRightButton || self.autoHideLeftButton) && !self.isEditing)
+    {
+      CGFloat rightButtonNewWidth = [self slk_appropriateRightButtonWidth];
+      CGFloat leftButtonNewWidth = [self slk_appropriateLeftButtonWidth];
+      
+      // Only updates if the width did change
+      if (self.rightButtonWC.constant == rightButtonNewWidth && self.leftButtonWC.constant == leftButtonNewWidth) {
+        return;
+      }
+      
+      if (self.rightButtonWC.constant != rightButtonNewWidth) {
+        self.rightButtonWC.constant = rightButtonNewWidth;
+        self.rightMarginWC.constant = [self slk_appropriateRightButtonMargin];
+        [self.rightButton layoutIfNeeded]; // Avoids the right button to stretch when animating the constraint changes
+      }
+      
+      if (self.leftButtonWC.constant != leftButtonNewWidth) {
+        self.leftButtonWC.constant = leftButtonNewWidth;
+        self.leftMarginWC.constant = [self slk_appropriateLeftButtonMargin];
+        [self.leftButton layoutIfNeeded]; // Avoids the left button to stretch when animating the constraint changes
+      }
+      
+      BOOL bounces = self.bounces && [self.textView isFirstResponder];
+      
+      if (self.window) {
+        [self slk_animateLayoutIfNeededWithBounce:bounces
+                                          options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction
+                                       animations:NULL];
+      }
+      else {
+        [self layoutIfNeeded];
+      }
+    }
+}
+
 
 #pragma mark - Observers
 
@@ -821,6 +841,8 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(slk_didChangeTextViewText:) name:UITextViewTextDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(slk_didChangeTextViewContentSize:) name:SLKTextViewContentSizeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(slk_didChangeContentSizeCategory:) name:UIContentSizeCategoryDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(slk_keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(slk_keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
 }
 
 - (void)slk_unregisterNotifications
@@ -828,6 +850,8 @@ NSString * const SLKTextInputbarDidMoveNotification =   @"SLKTextInputbarDidMove
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UITextViewTextDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:SLKTextViewContentSizeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIContentSizeCategoryDidChangeNotification object:nil];
+  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
+  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
 }
 
 
